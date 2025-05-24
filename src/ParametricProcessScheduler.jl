@@ -101,15 +101,67 @@ function save_config(sch::Scheduler, path::String)
 
 end
 
-function read_config(path::String)
+function parse_config_args(args::Vector{SubString{String}})
+    Vector{Any}([begin 
+        if contains(arg, "'")
+            arg = replace(arg, "'" => "")
+            arg = `$arg`
+        elseif contains(arg, "\"")
+            arg = replace(arg, "\"" => "")
+        else
+            try
+                arg = parse(Float64, arg)
+            catch
+                try
+                    arg = parse(Float64, arg)
+                catch
+                end
+            end
+        end
+        arg
+    end for arg in args])
+end
 
+function read_config(path::String)
+    tasks = Vector{Task}()
+    for taskline in readlines(path)
+        current_task = nothing
+        if taskline[1] == '0'
+            timeargs = split(taskline, " - ")
+            taskday = DateTime([parse(Int64, e) for e in split(timeargs[1], " ")[2:end]] ...)
+            timestr = timeargs[2]
+            task_fend = findfirst(" ", timestr)
+            fname = timestr[begin:minimum(task_fend) - 1]
+            task_fn = try
+                getfield(Main, Symbol(fname))
+            catch e
+                @warn "error in schedule configuration"
+                @info "could not get function $(taskline[19:minimum(task_fend)]) (not defined in `Main`)"
+                @warn e
+                continue
+            end
+            args = parse_config_args(split(timestr[minimum(task_fend) + 1:end], "-"))
+            @info args
+            current_task = new_task(task_fn, taskday, args ...)
+        elseif taskline[1] == '1'
+
+        elseif taskline[1] == '2'
+
+        else
+            println(taskline[1])
+            @info "skipped line"
+            continue
+        end
+        push!(tasks, current_task)
+    end
+    tasks::Vector{Task}
 end
 #==
 #    (0 denotes dated task and 1 denotes recurring)
 # 7 values, representing date:
-0 _ _ _ _ _ _ _
+0 _ _ _ _ _ _ _ - cmd args ...
 # 7 values representing date - interval ID and interval count
-1 _ _ _ _ _ _ _ - _ _ 
+1 _ _ _ _ _ _ _ - _ _ cmd args-...
 ==#
 
 export new_task, scheduler, RecurringTime
