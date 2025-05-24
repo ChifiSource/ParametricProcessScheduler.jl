@@ -1,0 +1,4 @@
+name = "ParametricProcessScheduler"
+uuid = "f31cb20c-9fb3-42aa-992b-75cb21ef0e24"
+authors = ["emmac <emmaccode@gmail.com>"]
+version = "0.1.0"
