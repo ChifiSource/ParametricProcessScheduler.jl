@@ -63,8 +63,8 @@ function start(scheduler::Scheduler; threads::Int64 = 1)
         @info "spawning threads ..."
         add_workers!(scheduler, threads)
     end
-    start_message = new_task(now(), println, "task scheduler started! (ran as task)")
-    push!(schedculer.tasks, start_message)
+    start_message = new_task(println, now(), "task scheduler started! (ran as task)")
+    push!(scheduler.jobs, start_message)
     current_dtime = now()
     next_task, taske = next_time(current_dtime, scheduler)
     scheduler.active = true
@@ -144,15 +144,64 @@ function read_task(t::Type{TaskIdentifier{0}}, taskline::String)
 end
 
 function read_task(t::Type{TaskIdentifier{1}}, taskline::String)
-    
+    timeargs = split(taskline, " - ")
+    taskday = DateTime([parse(Int64, e) for e in split(timeargs[1], " ")[2:end]] ...)
+    rec_line = timeargs[2]
+    select_end = findfirst(" ", rec_line)
+    select_end = minimum(select_end)
+    interval_end = findnext(" ", rec_line, select_end + 1)
+    interval_end = minimum(interval_end)
+    task_fend = findnext(" ", rec_line, interval_end + 1)
+    task_fend = minimum(task_fend)
+    fname = rec_line[interval_end + 1:task_fend - 1]
+    task_fn = try
+        getfield(Main, Symbol(fname))
+    catch e
+        @warn "error in schedule configuration"
+        @info "could not get function $(taskline[19:minimum(task_fend)]) (not defined in `Main`)"
+        @warn e
+        return(nothing)
+    end
+    args = parse_config_args(split(rec_line[task_fend + 1:end], "-"))
+    intervals = [Year, Day, Hour, Minute, Second, Millisecond]
+    interval = intervals[parse(Int64, rec_line[begin:select_end])](parse(Int64, 
+        rec_line[select_end + 1:interval_end - 1]))
+    new_time = RecurringTime(taskday, 
+    interval)
+    new_task(task_fn, new_time, args ...)::Task{RecurringTime}
 end
 
 function read_task(t::Type{TaskIdentifier{2}}, taskline::String)
 
 end
 
-function read_task(t::Type{TaskIdentifier{1}}, taskline::String)
-
+function read_task(t::Type{TaskIdentifier{3}}, taskline::String)
+    taskline = taskline[3:end]
+    taskday = now()
+    select_end = findfirst(" ", taskline)
+    select_end = minimum(select_end)
+    
+    interval_end = findnext(" ", taskline, select_end + 1)
+    interval_end = minimum(interval_end)
+    @warn taskline[1:interval_end]
+    task_fend = findnext(" ", taskline, interval_end + 1)
+    task_fend = minimum(task_fend)
+    fname = taskline[interval_end + 1:task_fend - 1]
+    task_fn = try
+        getfield(Main, Symbol(fname))
+    catch e
+        @warn "error in schedule configuration"
+        @info "could not get function $(taskline[19:minimum(task_fend)]) (not defined in `Main`)"
+        @warn e
+        return(nothing)
+    end
+    args = parse_config_args(split(taskline[task_fend + 1:end], "-"))
+    intervals = [Year, Day, Hour, Minute, Second, Millisecond]
+    interval = intervals[parse(Int64, taskline[begin:select_end])](parse(Int64, 
+        taskline[select_end + 1:interval_end - 1]))
+    new_time = RecurringTime(taskday, 
+    interval)
+    new_task(task_fn, new_time, args ...)::Task{RecurringTime}
 end
 
 function read_config(path::String)
