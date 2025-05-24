@@ -2,3 +2,11 @@ name = "ParametricProcessScheduler"
 uuid = "f31cb20c-9fb3-42aa-992b-75cb21ef0e24"
 authors = ["emmac <emmaccode@gmail.com>"]
 version = "0.1.0"
+
+[deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+ParametricProcesses = "9ce9415f-ecd2-4b63-a3f6-984ce63e76ce"
+
+[compat]
+Dates = "1.11.0"
+ParametricProcesses = "0.1.1"
