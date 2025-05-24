@@ -1,5 +1,4 @@
 module ParametricProcessScheduler
-
 using ParametricProcesses
 using Dates
 
@@ -28,8 +27,7 @@ function new_task(f::Function, t::Any, args ...; keyargs ...)
     Task{typeof(t)}(t, new_job(f, args ...; keyargs ...))
 end
 
-function clean!(workers::Workers{<:Any}, task::Task{<:Any}, taske::Int64)
-end
+function clean!(workers::Workers{<:Any}, task::Task{<:Any}, taske::Int64) end
 
 function clean!(workers::Workers{<:Any}, task::Task{DateTime}, taske::Int64)
     @info "deleted task"
@@ -43,12 +41,30 @@ mutable struct Scheduler <: ParametricProcesses.AbstractProcessManager
     Scheduler(tasks::Task ...) = new([tasks ...], Vector{Worker}(), false)
 end
 
+function assign_open!(pm::Scheduler, job::ParametricProcesses.AbstractJob; not = Async)
+    ws = pm.workers
+    ws = filter(w -> typeof(w) != Worker{not}, ws)
+    open = findfirst(w -> ~(w.active), ws)
+    if ~(isnothing(open))
+        w = ws[open]
+        assign!(w, job)
+        return([w.pid])
+    end
+    job.f(job.args ...; job.kwargs ...)
+end
+
 function next_time(now::DateTime, sched::Scheduler)
     times = [next_time(now, task.time) for task in sched.jobs]
     findmin(times)
 end
 
-function start(scheduler::Scheduler)
+function start(scheduler::Scheduler; threads::Int64 = 1)
+    if threads > 1
+        @info "spawning threads ..."
+        add_workers!(scheduler, threads)
+    end
+    start_message = new_task(now(), println, "task scheduler started! (ran as task)")
+    push!(schedculer.tasks, start_message)
     current_dtime = now()
     next_task, taske = next_time(current_dtime, scheduler)
     scheduler.active = true
@@ -66,29 +82,35 @@ function start(scheduler::Scheduler)
     w = Worker{Async}("scheduler", rand(1000:3000))
     w.active = scheduler.active
     push!(scheduler.workers, w)
-    @info "started scheduler"
     scheduler::Scheduler
 end
 
-function assign_open!(pm::Scheduler, job::ParametricProcesses.AbstractJob; not = Async)
-    ws = pm.workers
-    ws = filter(w -> typeof(w) != Worker{not}, ws)
-    open = findfirst(w -> ~(w.active), ws)
-    if ~(isnothing(open))
-        w = ws[open]
-        assign!(w, job)
-        return([w.pid])
-    end
-    job.f(job.args ...; job.kwargs ...)
+start(tasks::Task{<:Any} ...; keyargs ...) = start(Scheduler(tasks ...; keyargs ...))
+
+function start(path::String = pwd() * "config.conf.d"; keyargs ...)
+    sched::Scheduler = read_config(path)
+    start(sched; kargs ...)
 end
 
-function start(path::String = pwd() * "config")
+
+function save_config(tasks::Vector{Task}, path::String)
 
 end
 
-function save_config(sch::Scheduler)
+function save_config(sch::Scheduler, path::String)
 
 end
 
-export new_task, scheduler
+function read_config(path::String)
+
+end
+#==
+#    (0 denotes dated task and 1 denotes recurring)
+# 7 values, representing date:
+0 _ _ _ _ _ _ _
+# 7 values representing date - interval ID and interval count
+1 _ _ _ _ _ _ _ - _ _ 
+==#
+
+export new_task, scheduler, RecurringTime
 end # module ParametricProcessScheduler
