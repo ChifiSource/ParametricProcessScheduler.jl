@@ -16,9 +16,9 @@ version = "1.11.0"
 
 [[deps.ParametricProcesses]]
 deps = ["Distributed"]
-git-tree-sha1 = "1bae727e3cf2d08606ac635e794a511678c21ff1"
+path = "../ParametricProcesses.jl"
 uuid = "9ce9415f-ecd2-4b63-a3f6-984ce63e76ce"
-version = "0.1.1"
+version = "0.1.2"
 
 [[deps.Printf]]
 deps = ["Unicode"]

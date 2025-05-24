@@ -30,7 +30,6 @@ end
 function clean!(workers::Workers{<:Any}, task::Task{<:Any}, taske::Int64) end
 
 function clean!(workers::Workers{<:Any}, task::Task{DateTime}, taske::Int64)
-    @info "deleted task"
     deleteat!(workers, taske)
 end
 
@@ -71,7 +70,6 @@ function start(scheduler::Scheduler; threads::Int64 = 1)
     t = @async while scheduler.active
         current_dtime = Dates.now()
         if current_dtime >= next_task
-            @info "performing task"
             assign_open!(scheduler, scheduler.jobs[taske].job)
             clean!(scheduler.jobs, scheduler.jobs[taske], taske)
             sleep(1)
@@ -88,17 +86,21 @@ end
 start(tasks::Task{<:Any} ...; keyargs ...) = start(Scheduler(tasks ...; keyargs ...))
 
 function start(path::String = pwd() * "config.conf.d"; keyargs ...)
-    sched::Scheduler = read_config(path)
-    start(sched; kargs ...)
+    sched::Scheduler = Scheduler(read_config(path) ...)
+    start(sched; keyargs ...)
 end
 
 
-function save_config(tasks::Vector{Task}, path::String)
+function save_config(tasks::Vector{Task}, path::String = pwd() * "/config.conf.d")
+    open(path, "w") do o::IO
+        for task in tasks
 
+        end
+    end
 end
 
-function save_config(sch::Scheduler, path::String)
-
+function save_config(sch::Scheduler, args ...)
+    save_config(sch.jobs, args ...)
 end
 
 function parse_config_args(args::Vector{SubString{String}})
@@ -163,7 +165,7 @@ function read_task(t::Type{TaskIdentifier{1}}, taskline::String)
         return(nothing)
     end
     args = parse_config_args(split(rec_line[task_fend + 1:end], "-"))
-    intervals = [Year, Day, Hour, Minute, Second, Millisecond]
+    intervals = [Year, Month, Day, Hour, Minute, Second, Millisecond]
     interval = intervals[parse(Int64, rec_line[begin:select_end])](parse(Int64, 
         rec_line[select_end + 1:interval_end - 1]))
     new_time = RecurringTime(taskday, 
@@ -172,7 +174,20 @@ function read_task(t::Type{TaskIdentifier{1}}, taskline::String)
 end
 
 function read_task(t::Type{TaskIdentifier{2}}, taskline::String)
-
+    taskline = taskline[3:end]
+    task_fend = findfirst(" ", taskline)
+    task_fend = minimum(task_fend)
+    fname = taskline[begin:task_fend - 1]
+    task_fn = try
+        getfield(Main, Symbol(fname))
+    catch e
+        @warn "error in schedule configuration"
+        @info "could not get function $(taskline[19:minimum(task_fend)]) (not defined in `Main`)"
+        @warn e
+        return(nothing)
+    end
+    args = parse_config_args(split(taskline[task_fend + 1:end], "-"))
+    new_task(task_fn, now(), args ...)
 end
 
 function read_task(t::Type{TaskIdentifier{3}}, taskline::String)
@@ -180,10 +195,8 @@ function read_task(t::Type{TaskIdentifier{3}}, taskline::String)
     taskday = now()
     select_end = findfirst(" ", taskline)
     select_end = minimum(select_end)
-    
     interval_end = findnext(" ", taskline, select_end + 1)
     interval_end = minimum(interval_end)
-    @warn taskline[1:interval_end]
     task_fend = findnext(" ", taskline, interval_end + 1)
     task_fend = minimum(task_fend)
     fname = taskline[interval_end + 1:task_fend - 1]
@@ -196,7 +209,7 @@ function read_task(t::Type{TaskIdentifier{3}}, taskline::String)
         return(nothing)
     end
     args = parse_config_args(split(taskline[task_fend + 1:end], "-"))
-    intervals = [Year, Day, Hour, Minute, Second, Millisecond]
+    intervals = [Year, Month, Day, Hour, Minute, Second, Millisecond]
     interval = intervals[parse(Int64, taskline[begin:select_end])](parse(Int64, 
         taskline[select_end + 1:interval_end - 1]))
     new_time = RecurringTime(taskday, 
@@ -207,6 +220,12 @@ end
 function read_config(path::String)
     tasks = Vector{Task}()
     for taskline in readlines(path)
+        if length(taskline) < 1
+            continue
+        end
+        if taskline[1] == "#"
+            continue
+        end
         current_task = read_task(TaskIdentifier{parse(Int64, taskline[1])}, taskline)
         if isnothing(current_task)
             continue
