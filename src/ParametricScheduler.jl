@@ -1,11 +1,41 @@
 module ParametricScheduler
 using ParametricProcesses
 using Dates
+using CodeTracking
 
+"""
+```julia
+mutable struct RecurringTime
+```
+- `start_time`**::Dates.DateTime**
+- `interval`**::Dates.Period**
+
+The `RecurringTime` object is used to create recurring event times. Like `DateTime`, 
+a `RecurringTime` may be passed to `new_task` to create a new `Task`. The `Task` holds 
+the time type as a parameter. `RecurringTime` will make the task occur continuously until interrupted.
+
+`RecurringTime` is created by providing a `start_time` and an interval. An interval is 
+one of the 7 interval options,
+- `Year`, `Month`, `Day`, `Hour`, `Minute`, `Second`, and `Millisecond`
+
+as well as a starting `DateTime`
+```julia
+RecurringTime(start_time::Dates.DateTime, interval::Dates.Period)
+```
+```julia
+using ParametricScheduler
+
+                            # now and then every 10 seconds after that
+time_for_task = RecurringTime(now(), Second(10))
+```
+- See also: `next_time`, `start`, `Task`, `new_task`, `Dates.DateTime`, `Scheduler`
+"""
 mutable struct RecurringTime
     start_time::DateTime
     interval::Dates.Period
 end
+
+function next_time end
 
 next_time(now::DateTime, date::DateTime) = date
 
@@ -54,15 +84,33 @@ end
 
 function next_time(now::DateTime, sched::Scheduler)
     times = [next_time(now, task.time) for task in sched.jobs]
-    findmin(times)
+    if length(times) == 0
+        return(0, 0)
+    end
+    enumer = findmin(times)
+    return(enumer)
 end
 
-function start(scheduler::Scheduler; threads::Int64 = 1, async::Bool = true)
+function start(scheduler::Scheduler, mods::Any ...; threads::Int64 = 1, async::Bool = true)
     if threads > 1
         @info "spawning threads ..."
         scheduler.workers = ParametricProcesses.create_workers(threads, ParametricProcesses.Threaded)
-    end
-    start_message = new_task(println, now(), "task scheduler started! (ran as task)")
+        modstr = ""
+        for mod in mods 
+            if mod isa AbstractString
+                if contains(mod, ".jl")
+                    @everywhere include_string(Main, $(read(mod, String)))
+                    continue
+                end
+            end
+            modstr = modstr * "using $mod"
+        end
+        Main.eval(Meta.parse("""using ParametricScheduler: @everywhere; @everywhere begin
+            using Dates
+            $modstr
+        end"""))
+	end
+    start_message = new_task(println, now() - Year(100), "task scheduler started! (ran as task)")
     insert!(scheduler.jobs, 1, start_message)
     current_dtime = now()
     next_task, taske = next_time(current_dtime, scheduler)
@@ -74,11 +122,14 @@ function start(scheduler::Scheduler; threads::Int64 = 1, async::Bool = true)
                 try
                     assign_open!(scheduler, scheduler.jobs[taske].job)
                 catch e
-                    throw(e)
+                    @warn "error in task $taske"
+                    @warn e
                 end
                 clean!(scheduler.jobs, scheduler.jobs[taske], taske)
-                sleep(1)
                 next_task, taske = next_time(current_dtime, scheduler)
+                if taske == 0
+                    break
+                end
             end
         end
         return scheduler
@@ -92,8 +143,10 @@ function start(scheduler::Scheduler; threads::Int64 = 1, async::Bool = true)
                 throw(e)
             end
             clean!(scheduler.jobs, scheduler.jobs[taske], taske)
-            sleep(1)
             next_task, taske = next_time(current_dtime, scheduler)
+            if taske == 0
+                break
+            end
         end
         yield()
     end
@@ -103,17 +156,42 @@ function start(scheduler::Scheduler; threads::Int64 = 1, async::Bool = true)
     scheduler::Scheduler
 end
 
-start(tasks::Task{<:Any} ...; keyargs ...) = start(Scheduler(tasks ...; keyargs ...))
-
-function start(path::String = pwd() * "config.cfg"; keyargs ...)
+function start(path::String = pwd() * "config.cfg", mods::Any ...; keyargs ...)
+    modstr = ""
+    for mod in mods 
+        if mod isa AbstractString
+            if contains(mod, ".jl")
+                @everywhere include_string(Main, $(read(mod, String)))
+                continue
+            end
+        end
+        modstr = modstr * "using $mod"
+    end
+    Base.eval(Main, Meta.parse(modstr))
     sched::Scheduler = Scheduler(read_config(path) ...)
-    start(sched; keyargs ...)
+    start(sched, mods ...; keyargs ...)
 end
 
 function config_str(task::Task{DateTime})
     # 0 _ _ _ _ _ _ _ - cmd args ...
-    "$(year())"
+    d = task.time
+    jb_args = join(("\"$arg\"" for arg in task.job.args), "-")
+    *("0 $(year(d)) $(month(d)) $(hour(d)) $(minute(d)) $(second(d)) $(millisecond(d))", 
+    " - $(task.job.f) $jb_args")
 end
+
+function config_str(task::Task{RecurringTime})
+    # 1 _ _ _ _ _ _ _ - _ _ cmd args-...
+    d = task.time.start_time
+    intervals = [Year, Month, Day, Hour, Minute, Second, Millisecond]
+    T = typeof(task.interval)
+    int_num = findfirst(y -> y == T, intervals)
+    
+    jb_args = join(("\"$arg\"" for arg in task.job.args), "-")
+    *("1 $(year(d)) $(month(d)) $(hour(d)) $(minute(d)) $(second(d)) $(millisecond(d))", 
+    " - $int_num $(task.interval.value) $(task.job.f) $jb_args")
+end
+
 
 function save_config(tasks::Vector{Task}, path::String = pwd() * "/config.cfg")
     open(path, "w") do o::IO
@@ -266,6 +344,10 @@ function read_config(path::String)
         end
         if taskline[1] == "#"
             continue
+        elseif taskline[1] == "u"
+            if contains(taskline, "using")
+
+            end
         end
         current_task = read_task(TaskIdentifier{parse(Int64, taskline[1])}, taskline)
         if isnothing(current_task)
