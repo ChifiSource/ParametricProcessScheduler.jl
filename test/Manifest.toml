@@ -2,7 +2,7 @@
 
 julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "5ef98e42b6671088a74e800da177521b657e139b"
+project_hash = "8b1d720d85b559ba04f0be0b5600fffd60c0c975"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -15,6 +15,12 @@ version = "1.11.0"
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
+
+[[deps.CodeTracking]]
+deps = ["InteractiveUtils", "UUIDs"]
+git-tree-sha1 = "062c5e1a5bf6ada13db96a4ae4749a4c2234f521"
+uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
+version = "1.3.9"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -33,6 +39,11 @@ version = "1.6.0"
 
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
+version = "1.11.0"
+
+[[deps.InteractiveUtils]]
+deps = ["Markdown"]
+uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
 
 [[deps.LibCURL]]
@@ -88,9 +99,15 @@ version = "1.2.0"
 
 [[deps.ParametricProcesses]]
 deps = ["Distributed"]
-path = "../ParametricProcesses.jl"
+path = "../../ParametricProcesses.jl"
 uuid = "9ce9415f-ecd2-4b63-a3f6-984ce63e76ce"
 version = "0.1.2"
+
+[[deps.ParametricScheduler]]
+deps = ["CodeTracking", "Dates", "ParametricProcesses", "Pkg"]
+path = ".."
+uuid = "f31cb20c-9fb3-42aa-992b-75cb21ef0e24"
+version = "0.1.0"
 
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
@@ -134,6 +151,11 @@ version = "1.0.3"
 deps = ["ArgTools", "SHA"]
 uuid = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
 version = "1.10.0"
+
+[[deps.Test]]
+deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
+uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+version = "1.11.0"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]

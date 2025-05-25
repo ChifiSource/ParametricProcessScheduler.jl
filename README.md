@@ -1,6 +1,11 @@
 <div align="center">
   <img src="https://github.com/ChifiSource/image_dump/blob/main/parametricprocesses/parscheduler.png"></img>
+
+  [docs](https://chifidocs.com/parametric/ParametricScheduler)
+
+  <h6>Package is currently a WIP, but will release soon alongside ParametricProcesses 0.1.3</h6>
 </div>
+
 
 `ParametricScheduler` is used to schedule recurring and one-time tasks from Julia. This fills the role of applications like `Crontab` in systems applications, only in this case facilitated through Julia and its `Dates` `Module`. These tasks can also be scaled using multi-threading and `ParametricProcesses`.
 - getting started
@@ -75,7 +80,21 @@ The codes two and three remove the dates from the beginning, and will set the da
 
 3 _ _ cmd args ...
 ```
-Configuration files also have the ability to load modules into `mod` for multi-threading; when using functions and modules across multiple threads, it will be essential that we `use` those modules or `include` them from files before starting. For more information, see [threading](#threading)
+Configuration files also have the ability to load modules into `mod` for multi-threading; when using functions and modules across multiple threads, it will be essential that we `use` those modules or `include` them from files before starting. For more information, see [threading](#threading). We load in our dependencies using `activate`, `using`, and `include` lines
+```julia
+# sample config
+# activates our environment
+activate .
+# loads Pkg 
+using Pkg
+# loads `fns.jl`, containing `sampletwo`
+include fns.jl
+# every 7 seconds
+3 6 7 sampletwo "hi! I am running!"
+2 sampletwo "immediately runs"
+# every 24 hours from now, as well as right now
+3 4 24 Pkg.instantiate
+```
 ### api
 
 ### threading

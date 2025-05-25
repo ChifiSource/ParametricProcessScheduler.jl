@@ -1,7 +1,8 @@
 module ParametricScheduler
 using ParametricProcesses
 using Dates
-using CodeTracking
+using Pkg
+import Base: close
 
 """
 ```julia
@@ -167,6 +168,47 @@ mutable struct Scheduler <: ParametricProcesses.AbstractProcessManager
     Scheduler(tasks::Task ...) = new([tasks ...], Vector{Worker}(), false)
 end
 
+"""
+```julia
+remove_task!(sched::Scheduler, num::Int64) -> ::Nothing
+remove_task!(sched::Scheduler, date::Dates.DateTime) -> ::Nothing
+```
+Removes a given `Task` from a `Scheduler` by position or `DateTime`. See `Scheduler.jobs` 
+for a list of tasks.
+```julia
+```
+- See also: `add_tasks!`, `start`, `Scheduler`
+"""
+function remove_task!(sched::Scheduler, num::Int64)
+    deleteat!(sched.jobs, num)
+    nothing::Nothing
+end
+
+function remove_task!(sched::Scheduler, date::Dates.DateTime)
+    f = findfirst(x -> begin
+        if x isa Task{DateTime}
+            x.time == date
+        else
+            x.time.start_time == date
+        end
+    end, sched.jobs)
+    if isnothing(f)
+        throw("cannot remove task at $date, task not found")
+    end
+    remove_task!(sched, f)
+end
+
+"""
+```julia
+add_tasks!(sched::Scheduler, tasks::Task ...) -> ::Nothing
+```
+Adds `tasks` to the `jobs` of the `Scheduler` `sched`.
+```julia
+```
+- See also: `close`, `start`, `remove_task!` , `Task`, `Scheduler`
+"""
+add_tasks!(sched::Scheduler, tasks::Task ...) = push!(sched.jobs, tasks ...)
+
 function assign_open!(pm::Scheduler, job::ParametricProcesses.AbstractJob; not = Async)
     ws = pm.workers
     ws = filter(w -> typeof(w) != Worker{not}, ws)
@@ -206,12 +248,41 @@ that a provided `Module` also *must be a project*. Note that we only need to pro
 if we are using multi-threading.
 ```julia
 start(scheduler::Scheduler, mods::Any ...; threads::Int64 = 1, async::Bool = true)
+start(t::Task ..., args ...; keyargs ...)
 start(path::String = pwd() * "config.cfg", mods::Any ...; keyargs ...)
 ```
 ```julia
 using ParametricScheduler
 
 ParametricScheduler.start("config.cfg", "functions_for_config.jl", TOML)
+```
+When starting with a `path`, it is important to have a correctly formatted configuration file.
+```julia
+# sample config
+# activating, using modules, and include -- usually only necessary for multi-threading,
+#   but keep in mind any `Task` function *must* be defined in `Main`.
+# (comments are also available)
+activate .
+using Pkg
+include fns.jl
+
+#    (0 denotes dated task and 1 denotes recurring)
+# 7 values, representing date:
+# (Year, Month, Day, Hour, Minute, Second, Millisecond)
+
+0 _ _ _ _ _ _ _ - cmd args ...
+
+# 7 values representing date - interval ID and interval count
+
+1 _ _ _ _ _ _ _ - _ _ cmd args-...
+
+# 2 = do immediately...
+
+2 cmd args-
+
+# 3 = do recurringly at x interval
+
+3 _ _ cmd args ...
 ```
 - See also: `new_task`, `Task`, `DateTime`, `RecurringTime`, `Scheduler`
 """
@@ -280,6 +351,9 @@ function start(scheduler::Scheduler, mods::Any ...; threads::Int64 = 1, async::B
     scheduler::Scheduler
 end
 
+start(t::Task ...; mods::Vector{String} = Vector{String}(), keyargs ...) = start(Scheduler(t ...), mods ...,
+    ;keyargs ...)
+
 function start(path::String = pwd() * "config.cfg", mods::Any ...; keyargs ...)
     modstr = ""
     for mod in mods 
@@ -292,8 +366,9 @@ function start(path::String = pwd() * "config.cfg", mods::Any ...; keyargs ...)
         modstr = modstr * "using $mod"
     end
     Base.eval(Main, Meta.parse(modstr))
-    sched::Scheduler = Scheduler(read_config(path) ...)
-    start(sched, mods ...; keyargs ...)
+    ts, cfg_mods = read_config(path)
+    sched::Scheduler = Scheduler(ts ...)
+    start(sched, mods ..., cfg_mods ...; keyargs ...)
 end
 
 """
@@ -440,6 +515,7 @@ function read_task(t::Type{TaskIdentifier{0}}, taskline::String)
     new_task(task_fn, taskday, args ...)::Task{DateTime}
 end
 
+
 function read_task(t::Type{TaskIdentifier{1}}, taskline::String)
     timeargs = split(taskline, " - ")
     taskday = DateTime([parse(Int64, e) for e in split(timeargs[1], " ")[2:end]] ...)
@@ -523,7 +599,7 @@ end
 
 """
 ```julia
-read_config(path::String) -> ::Vector{Task}
+read_config(path::String) -> ::Tuple{Vector{Task}, Vector{String}}
 ```
 Reads the configuration file format. Configuration file key:
 ```julia
@@ -552,16 +628,38 @@ A shorter way to do this is to call `start` directly with your path!
 """
 function read_config(path::String)
     tasks = Vector{Task}()
+    mods::Vector{String} = Vector{String}()
     for taskline in readlines(path)
         if length(taskline) < 1
             continue
         end
-        if taskline[1] == "#"
+        if taskline[1] == '#'
             continue
-        elseif taskline[1] == "u"
+        elseif taskline[1] == 'u'
             if contains(taskline, "using")
-
+                path = split(taskline, " ")
+                push!(mods, path[2])
             end
+            continue
+        elseif taskline[1] == 'i'
+            if contains(taskline, "include")
+                path = split(taskline, " ")
+                if length(path) < 2
+                    throw("error in include: $taskline")
+                end
+                Main.eval(Meta.parse("""include("$(path[2])")"""))
+                push!(mods, path[2])
+            end
+            continue
+        elseif taskline[1] == 'a'
+            if contains(taskline, "activate")
+                path = split(taskline, " ")
+                if length(path) < 2
+                    throw("error on project activation: $taskline")
+                end
+                Pkg.activate(replace(path[2], " " => ""))
+            end
+            continue
         end
         current_task = read_task(TaskIdentifier{parse(Int64, taskline[1])}, taskline)
         if isnothing(current_task)
@@ -569,8 +667,11 @@ function read_config(path::String)
         end
         push!(tasks, current_task)
     end
-    tasks::Vector{Task}
+    return(tasks, mods)
 end
 
-export new_task, scheduler, RecurringTime
+export new_task, RecurringTime, DateTime, save_config
+export Year, year, Month, month, Day, day, Hour, hour, Minute, minute
+export second, Second, Millisecond, millisecond, now
+export remove_task!, add_tasks!, add_workers!, worker_pids, Scheduler
 end # module ParametricProcessScheduler
