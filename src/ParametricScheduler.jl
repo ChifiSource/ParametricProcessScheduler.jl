@@ -303,14 +303,10 @@ config_str(task::Task) -> ::String
 Creates output for a configuration file from a `Task`. Used internally by `save_config` 
     to save configurations.
 ```julia
-# method list
+config_str(task::Task{DateTime})
+config_str(task::Task{RecurringTime})
 ```
-description of method list
-```julia
-# additional method list?
-```
-description of method list
-- See also: 
+- See also: `save_config`, `start`, `Scheduler`, `Task`, `new_task`
 """
 function config_str(task::Task{DateTime})
     # 0 _ _ _ _ _ _ _ - cmd args ...
@@ -332,17 +328,35 @@ function config_str(task::Task{RecurringTime})
     " - $int_num $(task.interval.value) $(task.job.f) $jb_args")
 end
 
-
+"""
+```julia
+save_config(tasks::Vector{Task}, path::String = pwd() * "/config.cfg") -> ::Nothing
+save_config(sch::Scheduler, args ...) -> ::Nothing
+```
+Writes a task to a configuration file at `path`. Do note that this will require an 
+import or include of your functions. Also note that only `Ints`, `Floats`, `Commands`, 
+and `Strings` will be parsed back.
+- See also: `config_str`, `parse_config_args`, `new_task`, `read_task`, `start`
+"""
 function save_config(tasks::Vector{Task}, path::String = pwd() * "/config.cfg")
     open(path, "w") do o::IO
         for task in tasks
             write(o, config_str(task))
         end
     end
+    nothing::Nothing
 end
 
 save_config(sch::Scheduler, args ...) = save_config(sch.jobs, args ...)
 
+"""
+```julia
+parse_config_args(args::Vector{SubString{String}}) -> ::Vector{Any}
+```
+Parses the 'argument' portion of a `ParametricScheduler` `.cfg` file. 
+Returns the arguments, vectorized as their appropriate types.
+- See also: `save_config`, `read_task`, `read_config`, `Scheduler`, `start`
+"""
 function parse_config_args(args::Vector{SubString{String}})
     filter(x -> ~(isnothing(x)), Vector{Any}([begin 
         if contains(arg, "'")
@@ -369,9 +383,42 @@ function parse_config_args(args::Vector{SubString{String}})
     end for arg in args]))
 end
 
+"""
+```julia
+abstract TaskIdentifier{N}
+```
+The `TaskIdentifier` is used by the `.cfg` file to read new format types parametrically. 
+Keep in mind that each number is unique and may only be used once. This is primarily how 
+`ParametricScheduler` loads different task types from files. This function is primarily used 
+by `read_task.`
+```julia
+# consistencies
+raw::String
+```
+- See also: `read_task`, `read_config`, `start`, `Scheduler`, `RecurringTime`, `Task`
+"""
 abstract type TaskIdentifier{N} end
 
-
+"""
+```julia
+read_task(t::Type{TaskIdentifier{<:Any}}, taskline::String) -> ::Task{<:Any}
+```
+Reads a line of text (`taskline`) into a new `Task` using the parameters set by the task 
+type, `t`.
+```julia
+read_task(t::Type{TaskIdentifier{0}}, taskline::String) -> ::Task{DateTime}
+read_task(t::Type{TaskIdentifier{1}}, taskline::String) -> ::Task{RecurringTime}
+read_task(t::Type{TaskIdentifier{2}}, taskline::String) -> ::Task{DateTime}
+read_task(t::Type{TaskIdentifier{3}}, taskline::String) -> ::Task{RecurringTime}
+```
+```julia
+# simple read example:
+for x in readlines(myfile.cfg)
+    read_task(TaskIdentifier{x[1]}, x)
+end
+```
+- See also: `TaskIdentifier`, `Task`, `start`, `Task`
+"""
 function read_task(t::Type{TaskIdentifier{0}}, taskline::String)
     timeargs = split(taskline, " - ")
     taskday = DateTime([parse(Int64, e) for e in split(timeargs[1], " ")[2:end]] ...)
@@ -474,6 +521,35 @@ function read_task(t::Type{TaskIdentifier{3}}, taskline::String)
     new_task(task_fn, new_time, args ...)::Task{RecurringTime}
 end
 
+"""
+```julia
+read_config(path::String) -> ::Vector{Task}
+```
+Reads the configuration file format. Configuration file key:
+```julia
+#==
+#    (0 denotes dated task and 1 denotes recurring)
+# 7 values, representing date:
+# (Year, Month, Day, Hour, Minute, Second, Millisecond)
+
+0 _ _ _ _ _ _ _ - cmd args ...
+
+# 7 values representing date - interval ID and interval count
+
+1 _ _ _ _ _ _ _ - _ _ cmd args-...
+
+# 2 = do immediately...
+
+2 cmd args-
+
+# 3 = do recurringly at x interval
+
+3 _ _ cmd args ...
+==#
+```
+A shorter way to do this is to call `start` directly with your path!
+- See also: `new_task`, `start`, `Scheduler`, `Task`, `RecurringTime`, `DateTime`
+"""
 function read_config(path::String)
     tasks = Vector{Task}()
     for taskline in readlines(path)
@@ -495,26 +571,6 @@ function read_config(path::String)
     end
     tasks::Vector{Task}
 end
-
-#==
-#    (0 denotes dated task and 1 denotes recurring)
-# 7 values, representing date:
-# (Year, Month, Day, Hour, Minute, Second, Millisecond)
-
-0 _ _ _ _ _ _ _ - cmd args ...
-
-# 7 values representing date - interval ID and interval count
-
-1 _ _ _ _ _ _ _ - _ _ cmd args-...
-
-# 2 = do immediately...
-
-2 cmd args-
-
-# 3 = do recurringly at x interval
-
-3 _ _ cmd args ...
-==#
 
 export new_task, scheduler, RecurringTime
 end # module ParametricProcessScheduler
