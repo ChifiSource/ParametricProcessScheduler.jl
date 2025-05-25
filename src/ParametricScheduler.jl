@@ -35,6 +35,26 @@ mutable struct RecurringTime
     interval::Dates.Period
 end
 
+"""
+```julia
+next_time(time::DateTime, args ...) -> ::DateTime
+# also returns the enumeration of the next time:
+next_time(time::DateTime, schedule::Schedule) -> ::Tuple{DateTime, Int64}
+```
+`next_time` is used to get the next time corresponding to a *task* **or** a `Scheduler`. 
+For example, when a `DateTime` is passed as the second argument `next_time` simply returns that 
+date. This changes when `next_time` is called on a `RecurringTime`, as this time it passed the 
+recurring time closest to our current time.
+
+The `next_time(::DateTime, ::Schedule)` binding works a little differently... This `Method` will 
+return a `DateTime`, as well as the enumeration of task that corresponds to that time.
+```julia
+next_time(now::DateTime, date::DateTime)
+next_time(now::DateTime, date::RecurringTime)
+next_time(now::DateTime, sched::Schedule)
+```
+- See also: `Task`, `RecurringTime`, `new_task`
+"""
 function next_time end
 
 next_time(now::DateTime, date::DateTime) = date
@@ -48,21 +68,98 @@ function next_time(now::DateTime, rt::RecurringTime)
 	return rt.start_time + (n_intervals + 1) * rt.interval
 end
 
+"""
+```julia
+mutable struct Task{T <: Any} <: ParametricProcesses.AbstractJob
+```
+- `time`**T**
+- `job`**::ParametricProcesses.ProcessJob**
+
+The `Task` is used to represent time-bound jobs for a `Scheduler`. The `Task` will 
+hold its time type (`RecurringTime` or `DateTime`) as a parameter. This constructor 
+isn't usually called directly; instead, see `new_task`.
+```julia
+Task{T}(time)
+```
+example
+```julia
+mytask = new_task(println, now(), "hello world!")
+```
+- See also: `new_task`, `Scheduler`, `start`, `RecurringTime`, `DateTime`
+"""
 mutable struct Task{T <: Any} <: ParametricProcesses.AbstractJob
     time::T
     job::ParametricProcesses.ProcessJob
 end
 
+"""
+```julia
+new_task(f::Function, t::Any, args ...; keyargs ...) -> ::Task{<:Any}
+```
+Creates a new task with `t` as the time and a new job created from `f` and 
+`args`/`keyargs`. `t` will be a time object -- either `Dates.DateTime` or 
+`RecurringTime`.
+```julia
+mytask = new_task(println, now() + Minute(10), "it has been 10 minutes.")
+
+mytask = new_task(now() + Minute(10), 1, 1) do (n1, n2)
+    println(n1, n2)
+end
+```
+- See also: `Scheduler`, `start`, `Task`, `RecurringTime`, `DateTime`
+"""
 function new_task(f::Function, t::Any, args ...; keyargs ...)
     Task{typeof(t)}(t, new_job(f, args ...; keyargs ...))
 end
 
+"""
+```julia
+clean!(workers::Workers{<:Any}, task::Task{<:Any}, taske::Int64) -> ::Nothing
+```
+Cleans any extra data from a completed task and/or deletes the task, does nothing 
+for a recurring task. Called after tasks are run.
+```julia
+
+```
+- See also: `Scheduler`, `start`, `Task`, `RecurringTime`, `DateTime`
+"""
 function clean!(workers::Workers{<:Any}, task::Task{<:Any}, taske::Int64) end
 
 function clean!(workers::Workers{<:Any}, task::Task{DateTime}, taske::Int64)
     deleteat!(workers, taske)
 end
 
+"""
+```julia
+mutable struct Scheduler <: ParametricProcesses.AbstractProcessManager
+```
+- `jobs`**::Vector{Task}**
+- `workers`**::Vector{Worker}**
+- `active`**::Bool**
+
+The `Scheduler` is a `ProcessManager` that performs jobs (optionally, across multiple threads,) at set times. 
+A `Scheduler` can be created by calling `start`, or providing a number of tasks to the `Scheduler`.
+```julia
+Scheduler(tasks::Task ...)
+```
+example
+```julia
+using ParametricScheduler
+
+my_scheduler = ParametricScheduler.start("myconfig.cfg")
+
+main_task = new_task(+, now(), 5, 5)
+                                # vv every 5 minutes from now
+second_task = new_task(print, RecurringTime(now(), Minute(5)), "task complete")
+
+my_tasks = [main_task]
+
+second_scheduler = ParametricScheduler.start(my_tasks ...)
+
+third_scheduler = Scheduler(my_tasks ...)
+```
+- See also: `Task`, `new_task`, `start`
+"""
 mutable struct Scheduler <: ParametricProcesses.AbstractProcessManager
     jobs::Vector{Task}
     workers::Vector{Worker}
@@ -91,6 +188,33 @@ function next_time(now::DateTime, sched::Scheduler)
     return(enumer)
 end
 
+"""
+```julia
+start(args ..., mods ...; threads::Int64 = 1, async::Bool = true) -> ::Scheduler
+```
+Starts a `Schedule` and begins scheduling tasks. Opposite to `close`. The schedular 
+may run asynchronously, or not. Our first positional argument will be some way to build our tasks, 
+be it a `Scheduler` holding the tasks, a file path from which we read the tasks, or the tasks themselves. 
+`threads` may be provided to enable task distribution across a certain number of Julia workers. This will 
+**require** that all dependencies are appropriated with `mods`. `mods` is exclusively used for 
+loading dependencies across threads for multi-threading, with `threads` set to 1 it does nothing.
+
+For modules, simply provide the `Module` as part of `mods` in the extended arguments. 
+For files, provide a `String` leading to the file's file path to `mods`. Note that functions simply defined in `Main` will not transfer across 
+multiple threads, we will *need* to provide `mods` or our workers will not have our functions. Note 
+that a provided `Module` also *must be a project*. Note that we only need to provide `mods` 
+if we are using multi-threading.
+```julia
+start(scheduler::Scheduler, mods::Any ...; threads::Int64 = 1, async::Bool = true)
+start(path::String = pwd() * "config.cfg", mods::Any ...; keyargs ...)
+```
+```julia
+using ParametricScheduler
+
+ParametricScheduler.start("config.cfg", "functions_for_config.jl", TOML)
+```
+- See also: `new_task`, `Task`, `DateTime`, `RecurringTime`, `Scheduler`
+"""
 function start(scheduler::Scheduler, mods::Any ...; threads::Int64 = 1, async::Bool = true)
     if threads > 1
         @info "spawning threads ..."
@@ -172,6 +296,22 @@ function start(path::String = pwd() * "config.cfg", mods::Any ...; keyargs ...)
     start(sched, mods ...; keyargs ...)
 end
 
+"""
+```julia
+config_str(task::Task) -> ::String
+```
+Creates output for a configuration file from a `Task`. Used internally by `save_config` 
+    to save configurations.
+```julia
+# method list
+```
+description of method list
+```julia
+# additional method list?
+```
+description of method list
+- See also: 
+"""
 function config_str(task::Task{DateTime})
     # 0 _ _ _ _ _ _ _ - cmd args ...
     d = task.time
@@ -201,9 +341,7 @@ function save_config(tasks::Vector{Task}, path::String = pwd() * "/config.cfg")
     end
 end
 
-function save_config(sch::Scheduler, args ...)
-    save_config(sch.jobs, args ...)
-end
+save_config(sch::Scheduler, args ...) = save_config(sch.jobs, args ...)
 
 function parse_config_args(args::Vector{SubString{String}})
     filter(x -> ~(isnothing(x)), Vector{Any}([begin 
