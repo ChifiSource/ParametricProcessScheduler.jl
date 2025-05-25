@@ -1,7 +1,8 @@
 module ParametricScheduler
 using ParametricProcesses
 using Dates
-using CodeTracking
+using Pkg
+import Base: close
 
 """
 ```julia
@@ -292,8 +293,9 @@ function start(path::String = pwd() * "config.cfg", mods::Any ...; keyargs ...)
         modstr = modstr * "using $mod"
     end
     Base.eval(Main, Meta.parse(modstr))
-    sched::Scheduler = Scheduler(read_config(path) ...)
-    start(sched, mods ...; keyargs ...)
+    ts, cfg_mods = read_config(path)
+    sched::Scheduler = Scheduler(ts ...)
+    start(sched, mods ..., cfg_mods ...; keyargs ...)
 end
 
 """
@@ -440,6 +442,11 @@ function read_task(t::Type{TaskIdentifier{0}}, taskline::String)
     new_task(task_fn, taskday, args ...)::Task{DateTime}
 end
 
+function close(sched::Scheduler)
+    @info "closing scheduler"
+
+end
+
 function read_task(t::Type{TaskIdentifier{1}}, taskline::String)
     timeargs = split(taskline, " - ")
     taskday = DateTime([parse(Int64, e) for e in split(timeargs[1], " ")[2:end]] ...)
@@ -523,7 +530,7 @@ end
 
 """
 ```julia
-read_config(path::String) -> ::Vector{Task}
+read_config(path::String) -> ::Tuple{Vector{Task}, Vector{String}}
 ```
 Reads the configuration file format. Configuration file key:
 ```julia
@@ -552,16 +559,38 @@ A shorter way to do this is to call `start` directly with your path!
 """
 function read_config(path::String)
     tasks = Vector{Task}()
+    mods::Vector{String} = Vector{String}()
     for taskline in readlines(path)
         if length(taskline) < 1
             continue
         end
-        if taskline[1] == "#"
+        if taskline[1] == '#'
             continue
-        elseif taskline[1] == "u"
+        elseif taskline[1] == 'u'
             if contains(taskline, "using")
-
+                path = split(taskline, " ")
+                push!(mods, path[2])
             end
+            continue
+        elseif taskline[1] == 'i'
+            if contains(taskline, "include")
+                path = split(taskline, " ")
+                if length(path) < 2
+                    throw("error in include: $taskline")
+                end
+                Main.eval(Meta.parse("""include("$(path[2])")"""))
+                push!(mods, path[2])
+            end
+            continue
+        elseif taskline[1] == 'a'
+            if contains(taskline, "activate")
+                path = split(taskline, " ")
+                if length(path) < 2
+                    throw("error on project activation: $taskline")
+                end
+                Pkg.activate(replace(path[2], " " => ""))
+            end
+            continue
         end
         current_task = read_task(TaskIdentifier{parse(Int64, taskline[1])}, taskline)
         if isnothing(current_task)
@@ -569,7 +598,7 @@ function read_config(path::String)
         end
         push!(tasks, current_task)
     end
-    tasks::Vector{Task}
+    return(tasks, mods)
 end
 
 export new_task, scheduler, RecurringTime
