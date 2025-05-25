@@ -57,20 +57,40 @@ function next_time(now::DateTime, sched::Scheduler)
     findmin(times)
 end
 
-function start(scheduler::Scheduler; threads::Int64 = 1)
+function start(scheduler::Scheduler; threads::Int64 = 1, async::Bool = true)
     if threads > 1
         @info "spawning threads ..."
-        add_workers!(scheduler, threads)
+        scheduler.workers = ParametricProcesses.create_workers(threads, ParametricProcesses.Threaded)
     end
     start_message = new_task(println, now(), "task scheduler started! (ran as task)")
-    push!(scheduler.jobs, start_message)
+    insert!(scheduler.jobs, 1, start_message)
     current_dtime = now()
     next_task, taske = next_time(current_dtime, scheduler)
     scheduler.active = true
+    if ~(async)
+        while scheduler.active
+            current_dtime = Dates.now()
+            if current_dtime >= next_task
+                try
+                    assign_open!(scheduler, scheduler.jobs[taske].job)
+                catch e
+                    throw(e)
+                end
+                clean!(scheduler.jobs, scheduler.jobs[taske], taske)
+                sleep(1)
+                next_task, taske = next_time(current_dtime, scheduler)
+            end
+        end
+        return scheduler
+    end
     t = @async while scheduler.active
         current_dtime = Dates.now()
         if current_dtime >= next_task
-            assign_open!(scheduler, scheduler.jobs[taske].job)
+            try
+                assign_open!(scheduler, scheduler.jobs[taske].job)
+            catch e
+                throw(e)
+            end
             clean!(scheduler.jobs, scheduler.jobs[taske], taske)
             sleep(1)
             next_task, taske = next_time(current_dtime, scheduler)
@@ -85,16 +105,20 @@ end
 
 start(tasks::Task{<:Any} ...; keyargs ...) = start(Scheduler(tasks ...; keyargs ...))
 
-function start(path::String = pwd() * "config.conf.d"; keyargs ...)
+function start(path::String = pwd() * "config.cfg"; keyargs ...)
     sched::Scheduler = Scheduler(read_config(path) ...)
     start(sched; keyargs ...)
 end
 
+function config_str(task::Task{DateTime})
+    # 0 _ _ _ _ _ _ _ - cmd args ...
+    "$(year())"
+end
 
-function save_config(tasks::Vector{Task}, path::String = pwd() * "/config.conf.d")
+function save_config(tasks::Vector{Task}, path::String = pwd() * "/config.cfg")
     open(path, "w") do o::IO
         for task in tasks
-
+            write(o, config_str(task))
         end
     end
 end
@@ -104,7 +128,7 @@ function save_config(sch::Scheduler, args ...)
 end
 
 function parse_config_args(args::Vector{SubString{String}})
-    Vector{Any}([begin 
+    filter(x -> ~(isnothing(x)), Vector{Any}([begin 
         if contains(arg, "'")
             arg = replace(arg, "'" => "")
             arg = `$arg`
@@ -120,8 +144,13 @@ function parse_config_args(args::Vector{SubString{String}})
                 end
             end
         end
-        arg
-    end for arg in args])
+        argcheck = findfirst(x::Char -> x != ' ', arg)
+        if isnothing(argcheck)
+            nothing
+        else
+            arg
+        end
+    end for arg in args]))
 end
 
 abstract type TaskIdentifier{N} end
@@ -132,6 +161,9 @@ function read_task(t::Type{TaskIdentifier{0}}, taskline::String)
     taskday = DateTime([parse(Int64, e) for e in split(timeargs[1], " ")[2:end]] ...)
     timestr = timeargs[2]
     task_fend = findfirst(" ", timestr)
+    if isnothing(task_fend)
+        task_fend = length(timestr)
+    end
     fname = timestr[begin:minimum(task_fend) - 1]
     task_fn = try
         getfield(Main, Symbol(fname))
@@ -154,6 +186,9 @@ function read_task(t::Type{TaskIdentifier{1}}, taskline::String)
     interval_end = findnext(" ", rec_line, select_end + 1)
     interval_end = minimum(interval_end)
     task_fend = findnext(" ", rec_line, interval_end + 1)
+    if isnothing(task_fend)
+        task_fend = length(timestr)
+    end
     task_fend = minimum(task_fend)
     fname = rec_line[interval_end + 1:task_fend - 1]
     task_fn = try
@@ -176,6 +211,9 @@ end
 function read_task(t::Type{TaskIdentifier{2}}, taskline::String)
     taskline = taskline[3:end]
     task_fend = findfirst(" ", taskline)
+    if isnothing(task_fend)
+        task_fend = length(timestr)
+    end
     task_fend = minimum(task_fend)
     fname = taskline[begin:task_fend - 1]
     task_fn = try
@@ -198,6 +236,9 @@ function read_task(t::Type{TaskIdentifier{3}}, taskline::String)
     interval_end = findnext(" ", taskline, select_end + 1)
     interval_end = minimum(interval_end)
     task_fend = findnext(" ", taskline, interval_end + 1)
+    if isnothing(task_fend)
+        task_fend = length(timestr)
+    end
     task_fend = minimum(task_fend)
     fname = taskline[interval_end + 1:task_fend - 1]
     task_fn = try
@@ -238,12 +279,20 @@ end
 #==
 #    (0 denotes dated task and 1 denotes recurring)
 # 7 values, representing date:
+# (Year, Month, Day, Hour, Minute, Second, Millisecond)
+
 0 _ _ _ _ _ _ _ - cmd args ...
+
 # 7 values representing date - interval ID and interval count
+
 1 _ _ _ _ _ _ _ - _ _ cmd args-...
+
 # 2 = do immediately...
+
 2 cmd args-
+
 # 3 = do recurringly at x interval
+
 3 _ _ cmd args ...
 ==#
 
