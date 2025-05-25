@@ -75,7 +75,21 @@ The codes two and three remove the dates from the beginning, and will set the da
 
 3 _ _ cmd args ...
 ```
-Configuration files also have the ability to load modules into `mod` for multi-threading; when using functions and modules across multiple threads, it will be essential that we `use` those modules or `include` them from files before starting. For more information, see [threading](#threading)
+Configuration files also have the ability to load modules into `mod` for multi-threading; when using functions and modules across multiple threads, it will be essential that we `use` those modules or `include` them from files before starting. For more information, see [threading](#threading). We load in our dependencies using `activate`, `using`, and `include` lines
+```julia
+# sample config
+# activates our environment
+activate .
+# loads Pkg 
+using Pkg
+# loads `fns.jl`, containing `sampletwo`
+include fns.jl
+# every 7 seconds
+3 6 7 sampletwo "hi! I am running!"
+2 sampletwo "immediately runs"
+# every 24 hours from now, as well as right now
+3 4 24 Pkg.instantiate
+```
 ### api
 
 ### threading
