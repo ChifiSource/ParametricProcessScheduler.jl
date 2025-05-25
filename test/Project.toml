@@ -1,0 +1,11 @@
+name = "test"
+uuid = "2502f66f-12ce-490f-aaf2-b906acd82c4f"
+authors = ["emmac <emmaccode@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+ParametricScheduler = "f31cb20c-9fb3-42aa-992b-75cb21ef0e24"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+Test = "1.11.0"
