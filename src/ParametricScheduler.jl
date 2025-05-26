@@ -1,3 +1,48 @@
+"""
+#### ParametricScheduler -- multi-threaded task scheduler for julia
+Created in May, 2025 by
+[chifi - an open source software dynasty.](https://github.com/orgs/ChifiSource)
+- This software is MIT-licensed.
+
+`ParametricScheduler` provides *dated*, mult-threaded task scheduling for recurring and one-time 
+    tasks. This is done primarily through the `Scheduler`, which is started using 
+    `start`. This `Module` is primarily used by creating configuration files, see 
+    `start` for more information.
+---
+###### contents
+- `now`
+- `DateTime`
+- `Year`
+- `year`
+- `Month`
+- `month`
+- `Day`
+- `day`
+- `Hour`
+- `hour`
+- `Minute`
+- `minute`
+- `Second`
+- `second`
+- `Millisecond`
+- `millisecond`
+- `RecurringTime`
+- `next_time`
+- `Task`
+- `new_task`
+- `clean!`
+- `Scheduler`
+- `close(pm::Scheduler)`
+- `remove_task!`
+- `add_tasks!`
+- `start`
+- `config_str`
+- `save_config`
+- `parse_config_args`
+- `TaskIdentifier`
+- `read_task`
+- `read_config`
+"""
 module ParametricScheduler
 using ParametricProcesses
 using Dates
