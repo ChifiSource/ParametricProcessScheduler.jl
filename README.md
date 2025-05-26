@@ -28,7 +28,7 @@ using Pkg; Pkg.add(name = "ParametricScheduler", rev = "Unstable")
 - We pride ourselves on having REPL-browseable documentation, use `?(ParametricScheduler)` for a full list of available functions.
 - There is also [documentation on chifi docs](https://chifidocs.com/parametric/ParametricScheduler) for this package.
 ### configuration files
-`ParametricScheduler` is primarily intended for use *through configuration files*. This package has its own unique formatting for `.cfg` files that are *relatively* straightforward to configure. Each *Task* is represented by a line inside of our `.cfg` file -- missing lines and lines starting with comments are an exception, as are some other special lines. Each `Task` line will start with a number, and this number tells the reader how that task should be read. There are four different task types:
+`ParametricScheduler` is primarily intended for use *through configuration files*. This package has its own unique formatting for `.cfg` files that are *relatively* straightforward to configure. Each *Task* is represented by a line inside of our `.cfg` file -- missing lines and lines starting with comments are an exception, as are some other special lines. Each `Task` line will start with a number, and this number tells the reader how that task should be read. Lines starting with a `#` will be ignored, and lines can also call `include`, `using`, and `activate` in very specific ways. There are four different task types:
 - **0** A `DateTime` task,
 - **1** a *recurring* `DateTime` task,
 - **2** an **immediate task**,
@@ -80,7 +80,7 @@ The codes two and three remove the dates from the beginning, and will set the da
 
 3 _ _ cmd args ...
 ```
-Configuration files also have the ability to load modules into `mod` for multi-threading; when using functions and modules across multiple threads, it will be essential that we `use` those modules or `include` them from files before starting. For more information, see [threading](#threading). We load in our dependencies using `activate`, `using`, and `include` lines
+Configuration files also have the ability to load modules into `mod` for multi-threading; when using functions and modules across multiple threads, it will be essential that we `use` those modules or `include` them from files before starting. For more information, see [threading](#threading). We load in our dependencies using `activate`, `using`, and `include` lines. 
 ```julia
 # sample config
 # activates our environment
@@ -96,5 +96,45 @@ include fns.jl
 3 4 24 Pkg.instantiate
 ```
 ### api
+Though `ParametricScheduler` is primarily intended for use *from configuration files*, it is possible to schedule tasks using the API. We start by creating our time type, which will be either `DateTime` or `RecurringTime`. For a `DateTime`, we provide the same seven values we mentioned before.
+- 1. Year
+  2. Month
+  3. Day
+  4. Hour
+  5. Minute
+  6. Second
+  7. Millisecond
 
+```julia
+# 5 A.M. on the first of January, 2025
+my_time = DateTime(2025, 1, 1, 5, 0, 0, 0)
+```
+To create a `RecurringTime`, we provide a start time (another `DateTime`) and an interval from that start time. 
+```julia
+#                                                (every hour)
+my_time = RecurringTime(DateTime(2025, 1, 1, 5, 0, 0, 0), Hour(1))
+```
+After creating a time, we call `new_task` to create a task from that time.
+```julia
+new_task(f::Function, t::Any, args ...; keyargs ...)
+```
+```julia
+my_task = new_task(println, now(), "hello scheduler!")
+```
+Now we can provide this new task to `Scheduler` to create a new `Scheduler`, or we could provide these tasks directly to `start` and get a *started* `Scheduler` in return. When we choose the former, we still need to call `start` on the `Scheduler` to start its process.
+```julia
+unstarted_sched = Scheduler(my_task)
+
+started_sched = ParametricScheduler.start(my_task)
+
+started_sched2 = ParametricScheduler.start(unstarted_sched)
+```
 ### threading
+It is assumed that **all** assigned functions will be loaded into `Main`; this means including your functions before assigning them as jobs and distributing them. When it comes to multi-threading, we use `mod` arguments to include our functions. This may be done from a configuration file or provided as arguments. Threads will **not** be able to run functions that are not loaded by provided the `Module` or include path to `mods`.
+- `mods` in configuration file:
+```julia
+
+```
+- `mods` in API:
+```julia
+```
