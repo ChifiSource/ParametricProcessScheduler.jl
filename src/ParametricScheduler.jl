@@ -198,6 +198,13 @@ function remove_task!(sched::Scheduler, date::Dates.DateTime)
     remove_task!(sched, f)
 end
 
+close(pm::Scheduler) = begin 
+    [delete!(pm, pid) for pid in worker_pids(pm)]
+    GC.gc()
+    pm.active = false
+    nothing
+end
+
 """
 ```julia
 add_tasks!(sched::Scheduler, tasks::Task ...) -> ::Nothing
@@ -288,8 +295,8 @@ include fns.jl
 """
 function start(scheduler::Scheduler, mods::Any ...; threads::Int64 = 1, async::Bool = true)
     if threads > 1
-        @info "spawning threads ..."
-        scheduler.workers = ParametricProcesses.create_workers(threads, ParametricProcesses.Threaded)
+        @info "spawning threads ... (This may take some time)"
+        scheduler.workers = ParametricProcesses.create_workers(threads - 1, ParametricProcesses.Threaded)
         modstr = ""
         for mod in mods 
             if mod isa AbstractString
@@ -318,7 +325,7 @@ function start(scheduler::Scheduler, mods::Any ...; threads::Int64 = 1, async::B
                     assign_open!(scheduler, scheduler.jobs[taske].job)
                 catch e
                     @warn "error in task $taske"
-                    @warn e
+                    throw(e)
                 end
                 clean!(scheduler.jobs, scheduler.jobs[taske], taske)
                 next_task, taske = next_time(current_dtime, scheduler)
@@ -335,7 +342,9 @@ function start(scheduler::Scheduler, mods::Any ...; threads::Int64 = 1, async::B
             try
                 assign_open!(scheduler, scheduler.jobs[taske].job)
             catch e
-                throw(e)
+                @sync begin
+                    throw(e)
+                end
             end
             clean!(scheduler.jobs, scheduler.jobs[taske], taske)
             next_task, taske = next_time(current_dtime, scheduler)
@@ -387,7 +396,7 @@ function config_str(task::Task{DateTime})
     # 0 _ _ _ _ _ _ _ - cmd args ...
     d = task.time
     jb_args = join(("\"$arg\"" for arg in task.job.args), "-")
-    *("0 $(year(d)) $(month(d)) $(hour(d)) $(minute(d)) $(second(d)) $(millisecond(d))", 
+    *("0 $(year(d)) $(month(d)) $(day(d)) $(hour(d)) $(minute(d)) $(second(d)) $(millisecond(d))", 
     " - $(task.job.f) $jb_args")
 end
 
@@ -395,12 +404,12 @@ function config_str(task::Task{RecurringTime})
     # 1 _ _ _ _ _ _ _ - _ _ cmd args-...
     d = task.time.start_time
     intervals = [Year, Month, Day, Hour, Minute, Second, Millisecond]
-    T = typeof(task.interval)
+    T = typeof(task.time.interval)
     int_num = findfirst(y -> y == T, intervals)
     
     jb_args = join(("\"$arg\"" for arg in task.job.args), "-")
-    *("1 $(year(d)) $(month(d)) $(hour(d)) $(minute(d)) $(second(d)) $(millisecond(d))", 
-    " - $int_num $(task.interval.value) $(task.job.f) $jb_args")
+    *("1 $(year(d)) $(month(d)) $(day(d)) $(hour(d)) $(minute(d)) $(second(d)) $(millisecond(d))", 
+    " - $int_num $(task.time.interval.value) $(task.job.f) $jb_args")
 end
 
 """
@@ -416,7 +425,7 @@ and `Strings` will be parsed back.
 function save_config(tasks::Vector{Task}, path::String = pwd() * "/config.cfg")
     open(path, "w") do o::IO
         for task in tasks
-            write(o, config_str(task))
+            write(o, config_str(task), "\n")
         end
     end
     nothing::Nothing
@@ -500,7 +509,11 @@ function read_task(t::Type{TaskIdentifier{0}}, taskline::String)
     timestr = timeargs[2]
     task_fend = findfirst(" ", timestr)
     if isnothing(task_fend)
-        task_fend = length(timestr)
+        task_fend = length(taskline)
+        fname = taskline[begin:task_fend]
+    else
+        task_fend = minimum(task_fend)
+        fname = taskline[begin:task_fend - 1]
     end
     fname = timestr[begin:minimum(task_fend) - 1]
     task_fn = try
@@ -526,7 +539,11 @@ function read_task(t::Type{TaskIdentifier{1}}, taskline::String)
     interval_end = minimum(interval_end)
     task_fend = findnext(" ", rec_line, interval_end + 1)
     if isnothing(task_fend)
-        task_fend = length(timestr)
+        task_fend = length(taskline)
+        fname = taskline[begin:task_fend]
+    else
+        task_fend = minimum(task_fend)
+        fname = taskline[begin:task_fend - 1]
     end
     task_fend = minimum(task_fend)
     fname = rec_line[interval_end + 1:task_fend - 1]
@@ -550,11 +567,14 @@ end
 function read_task(t::Type{TaskIdentifier{2}}, taskline::String)
     taskline = taskline[3:end]
     task_fend = findfirst(" ", taskline)
+    fname = ""
     if isnothing(task_fend)
-        task_fend = length(timestr)
+        task_fend = length(taskline)
+        fname = taskline[begin:task_fend]
+    else
+        task_fend = minimum(task_fend)
+        fname = taskline[begin:task_fend - 1]
     end
-    task_fend = minimum(task_fend)
-    fname = taskline[begin:task_fend - 1]
     task_fn = try
         getfield(Main, Symbol(fname))
     catch e
@@ -575,11 +595,14 @@ function read_task(t::Type{TaskIdentifier{3}}, taskline::String)
     interval_end = findnext(" ", taskline, select_end + 1)
     interval_end = minimum(interval_end)
     task_fend = findnext(" ", taskline, interval_end + 1)
+    fname = ""
     if isnothing(task_fend)
-        task_fend = length(timestr)
+        task_fend = length(taskline)
+        fname = taskline[interval_end + 1:task_fend]
+    else
+        task_fend = minimum(task_fend)
+        fname = taskline[select_end:task_fend - 1]
     end
-    task_fend = minimum(task_fend)
-    fname = taskline[interval_end + 1:task_fend - 1]
     task_fn = try
         getfield(Main, Symbol(fname))
     catch e
@@ -596,6 +619,8 @@ function read_task(t::Type{TaskIdentifier{3}}, taskline::String)
     interval)
     new_task(task_fn, new_time, args ...)::Task{RecurringTime}
 end
+
+
 
 """
 ```julia
