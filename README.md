@@ -2,8 +2,7 @@
   <img src="https://github.com/ChifiSource/image_dump/blob/main/parametricprocesses/parscheduler.png"></img>
 
   [docs](https://chifidocs.com/parametric/ParametricScheduler)
-
-  <h6>Package is currently a WIP, but will release soon alongside ParametricProcesses 0.1.3</h6>
+  
 </div>
 
 
